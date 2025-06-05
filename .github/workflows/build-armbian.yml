@@ -1,0 +1,61 @@
+name: Build Armbian for NanoPi R2S Docker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 导入 Debian Bookworm 公钥
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl gnupg dirmngr ca-certificates
+          curl -fsSL https://ftp-master.debian.org/keys/archive-key-12.asc \
+            | gpg --dearmour \
+            | sudo tee /etc/apt/trusted.gpg.d/debian-archive-bookworm.gpg >/dev/null
+
+      - name: 验证 apt-get update
+        run: |
+          sudo apt-get update
+
+      - name: 安装/注册 QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 克隆 Armbian build 仓库
+        run: |
+          git clone --depth=1 https://github.com/armbian/build.git armbian-build
+
+      - name: 开始编译 Armbian 镜像
+        env:
+          APT_LISTS_COPY_FROM_HOST_TO_IMAGE: no
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          cd armbian-build
+          ./compile.sh build \
+            BOARD=nanopi-r2s \
+            BRANCH=current \
+            RELEASE=bookworm \
+            BUILD_MINIMAL=yes \
+            NETWORKING_STACK=network-manager \
+            PREFER_DOCKER=yes \
+            ROOTFS_TYPE=ext4 \
+            CRYPTROOT_ENABLE=no \
+            KERNEL_CONFIGURE=no
+
+      - name: 生成 SHA256 文件
+        run: |
+          cd armbian-build/output/images
+          sha256sum *.img > sha256sum.txt
+
+      - name: 上传镜像
+        uses: actions/upload-artifact@v4
+        with:
+          name: armbian-image
+          path: armbian-build/output/images/
